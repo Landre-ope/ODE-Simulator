@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>First-Order ODE Simulator</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/10.6.4/math.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body {
+    font-family: Arial, sans-serif;
+    background: #f2f4f7;
+    margin: 0;
+    padding: 10px;
+    height: 100vh;
+    overflow: hidden;
+}
+.container {
+    display: flex;
+    gap: 15px;
+    height: calc(100vh - 20px);
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    overflow: hidden;
+}
+.sidebar {
+    width: 320px;
+    padding: 15px;
+    overflow-y: auto;
+    background: #f8f9fa;
+    border-right: 1px solid #dee2e6;
+}
+.main-content {
+    flex: 1;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.section {
+    margin-bottom: 15px;
+}
+h2 {
+    margin: 0 0 10px 0;
+    color: #333;
+    font-size: 1.3em;
+}
+h3 {
+    margin: 5px 0;
+    color: #555;
+    font-size: 1em;
+}
+label {
+    font-weight: bold;
+    margin-right: 5px;
+    font-size: 0.9em;
+}
+input, select {
+    padding: 5px;
+    margin: 3px 0;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 0.9em;
+    width: 100%;
+    box-sizing: border-box;
+}
+input[type="text"] {
+    width: calc(100% - 10px);
+}
+.inline-inputs {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.inline-inputs label {
+    font-size: 0.85em;
+}
+.inline-inputs input {
+    width: 70px;
+}
+button {
+    padding: 8px 16px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    width: 100%;
+    margin-top: 10px;
+}
+button:hover {
+    background-color: #0056b3;
+}
+#statusMsg {
+    margin-top: 8px;
+    padding: 8px;
+    background-color: #e9ecef;
+    border-left: 4px solid #007bff;
+    font-family: monospace;
+    color: #333;
+    display: none;
+    font-size: 0.85em;
+}
+#chart {
+    flex: 1;
+    max-height: calc(100vh - 80px);
+}
+/* =====================
+   Dark Mode Overrides
+   ===================== */
+body.dark { background:#121212; color:#e4e4e4; }
+body.dark .container { background:#1e1e1e; box-shadow:0 2px 10px rgba(0,0,0,0.6); }
+body.dark .sidebar { background:#1e1e1e; border-right:1px solid #2c2c2c; }
+body.dark .main-content { background:#1e1e1e; }
+body.dark h2, body.dark h3, body.dark label { color:#e4e4e4; }
+body.dark input, body.dark select { background:#2a2a2a; border:1px solid #444; color:#e4e4e4; }
+body.dark input::placeholder { color:#888; }
+body.dark button { background-color:#3399ff; }
+body.dark button:hover { background-color:#1a6fb3; }
+body.dark #statusMsg { background-color:#252525; color:#e4e4e4; border-left-color:#3399ff; }
+</style>
+</head>
+
+<body>
+<div class="container">
+
+    <!-- LEFT SIDEBAR -->
+    <div class="sidebar">
+        <h2>ODE Simulator</h2>
+
+        <!-- Equation Type -->
+        <div class="section">
+            <label>Equation Type:</label>
+            <select id="eqType" onchange="toggleFields()">
+                <option value="separable">Separable</option>
+                <option value="homogeneous">Homogeneous (u = y/x)</option>
+                <option value="linear">Linear</option>
+                <option value="exact">Exact</option>
+            </select>
+        </div>
+
+        <!-- Separable inputs -->
+        <div class="section" id="sepFields">
+            <h3>Separable: dy/dx = f(x)·g(y)</h3>
+            <label>f(x):</label>
+            <input id="fx" type="text" placeholder="x^2 + 1">
+            <label>g(y):</label>
+            <input id="gy" type="text" placeholder="y">
+        </div>
+
+        <!-- Homogeneous input -->
+        <div class="section" id="homFields" style="display:none;">
+            <h3>Homogeneous: F(y/x)</h3>
+            <label>F(u = y/x):</label>
+            <input id="homF" type="text" placeholder="u^2 + 1">
+        </div>
+
+        <!-- Linear input -->
+        <div class="section" id="linFields" style="display:none;">
+            <h3>Linear: dy/dx + P(x)y = Q(x)</h3>
+            <label>P(x):</label><input id="Px" type="text">
+            <label>Q(x):</label><input id="Qx" type="text">
+        </div>
+
+        <!-- Exact input -->
+        <div class="section" id="exFields" style="display:none;">
+            <h3>Exact: M dx + N dy = 0</h3>
+            <label>M(x,y):</label><input id="Mx" type="text">
+            <label>N(x,y):</label><input id="Ny" type="text">
+        </div>
+
+        <!-- Initial conditions -->
+        <div class="section">
+            <h3>Parameters</h3>
+            <div class="inline-inputs">
+                <div>
+                    <label>x₀:</label>
+                    <input id="x0" value="0">
+                </div>
+                <div>
+                    <label>y₀:</label>
+                    <input id="y0" value="1">
+                </div>
+            </div>
+            <div class="inline-inputs">
+                <div>
+                    <label>h:</label>
+                    <input id="h" value="0.01">
+                </div>
+                <div>
+                    <label>x end:</label>
+                    <input id="xEnd" value="5">
+                </div>
+            </div>
+            <label>Method:</label>
+            <select id="method">
+                <option value="euler">Euler</option>
+                <option value="rk4">RK4</option>
+            </select>
+            
+            <div style="margin-top: 10px; display: flex; align-items: center; gap: 5px;">
+                <input type="checkbox" id="familyToggle" onchange="toggleFamily()" style="width: auto; margin: 0;">
+                <label style="margin: 0; font-weight: normal;">Family of Curves</label>
+            </div>
+            <div id="familyControls" style="display:none; margin-top: 5px;">
+                <label>Number of curves (1-5):</label>
+                <input id="numCurves" type="number" min="1" max="5" value="5" style="width: 60px;">
+            </div>
+
+            <button onclick="simulate()">Simulate</button>
+            <div id="statusMsg"></div>
+        </div>
+        <!-- Theme toggle moved to lower left -->
+        <div class="theme-toggle-bottom" style="display:flex; justify-content:flex-start;">
+            <button id="themeToggle" type="button" onclick="toggleTheme()" style="padding:6px 14px; font-size:0.75em; background:#343a40; color:#fff; border:none; border-radius:4px; cursor:pointer;">Dark Mode</button>
+        </div>
+    </div>
+
+    <!-- RIGHT MAIN CONTENT -->
+    <div class="main-content">
+        <canvas id="chart"></canvas>
+    </div>
+
+</div>
+
+<script>
+let chart = null;
+
+// ====================
+// Integer-step integrator
+// ====================
+function integrate(f, x0, y0, xEnd, h, method) {
+    const dir = Math.sign(xEnd - x0) || 1;
+    if (Math.abs(h) < 1e-9) return { xs:[], ys:[], status: "Step size too small" };
+    
+    const N = Math.floor(Math.abs((xEnd - x0) / h));
+
+    let xs = [];
+    let ys = [];
+
+    let x = x0;
+    let y = y0;
+    let status = "Simulation Complete";
+
+    for (let i = 0; i <= N; i++) {
+        // Force x to be exact to avoid floating point drift
+        x = parseFloat((x0 + i * h * dir).toPrecision(12));
+        
+        xs.push(x);
+        ys.push(y);
+
+        if (i === N) break;
+
+        let step = h * dir;
+
+        if (method === "euler") {
+            try {
+                y = y + step * f(x, y);
+            } catch (e) { 
+                status = "Error evaluating function: " + e.message;
+                break; 
+            }
+        } else {
+            // RK4
+            try {
+                const k1 = f(x, y);
+                const k2 = f(x + step/2, y + step*k1/2);
+                const k3 = f(x + step/2, y + step*k2/2);
+                const k4 = f(x + step,    y + step*k3);
+                y = y + (step/6)*(k1 + 2*k2 + 2*k3 + k4);
+            } catch (e) { 
+                status = "Error evaluating function: " + e.message;
+                break; 
+            }
+        }
+        
+        // Safety break logic
+        // Silently stop if solution blows up; keep status as "Simulation Complete"
+        if (!isFinite(y) || Math.abs(y) > 1e100) {
+            break;
+        }
+    }
+
+    return { xs, ys, status };
+}
+
+// ====================
+// Build f(x,y) depending on type
+// ====================
+function buildFunction() {
+    const eq = document.getElementById("eqType").value;
+
+    if (eq === "separable") {
+        const fxVal = document.getElementById("fx").value || "0";
+        const gyVal = document.getElementById("gy").value || "0";
+        const fx = math.parse(fxVal).compile();
+        const gy = math.parse(gyVal).compile();
+        return (x,y) => fx.evaluate({x}) * gy.evaluate({y});
+    }
+
+    if (eq === "homogeneous") {
+        const homVal = document.getElementById("homF").value || "0";
+        const hom = math.parse(homVal).compile();
+        
+        // Determine direction of integration to know if we approach 0 from positive or negative side
+        const xStart = parseFloat(document.getElementById("x0").value);
+        const xFinish = parseFloat(document.getElementById("xEnd").value);
+        const direction = Math.sign(xFinish - xStart) || 1;
+
+        return (x,y) => {
+            // "Limit" approach:
+            // If x is exactly 0, we treat it as approaching 0 from the direction of integration.
+            let xLimit = x;
+            if (Math.abs(x) < 1e-9) {
+                xLimit = direction * 1e-9;
+            }
+            // FIXED: Added x and y to the scope so they are defined for the user's equation
+            return hom.evaluate({
+                u: y / xLimit, 
+                x: xLimit, 
+                y: y
+            });
+        };
+    }
+
+    if (eq === "linear") {
+        const PVal = document.getElementById("Px").value || "0";
+        const QVal = document.getElementById("Qx").value || "0";
+        const P = math.parse(PVal).compile();
+        const Q = math.parse(QVal).compile();
+        return (x,y) => Q.evaluate({x}) - P.evaluate({x})*y;
+    }
+
+    // exact
+    const MVal = document.getElementById("Mx").value || "0";
+    const NVal = document.getElementById("Ny").value || "1";
+    const M = math.parse(MVal).compile();
+    const N = math.parse(NVal).compile();
+    return (x,y) => -M.evaluate({x,y}) / N.evaluate({x,y});
+}
+
+// ====================
+// Chart update
+// ====================
+function plot(allCurves) {
+    if (chart) chart.destroy();
+
+    const ctx = document.getElementById("chart").getContext("2d");
+    const isDark = document.body.classList.contains('dark');
+    const axisColor = isDark ? '#e4e4e4' : '#333';
+
+    // Helper for formatting numbers
+    const formatNumber = (num) => {
+        if (Math.abs(num) > 10000 || (Math.abs(num) < 0.001 && num !== 0)) {
+            const str = num.toExponential(3);
+            const [base, exponent] = str.split('e');
+            const cleanExponent = exponent.replace('+', '');
+            return `${base} × 10^${cleanExponent}`;
+        }
+        return Number(num).toFixed(3);
+    };
+
+    // Create datasets from all curves
+    const datasets = allCurves.map((curve, idx) => {
+        const dataPoints = curve.xs.map((x, i) => ({x: x, y: curve.ys[i]}));
+        const colors = [
+            "rgb(75, 192, 192)",
+            "rgb(255, 99, 132)",
+            "rgb(54, 162, 235)",
+            "rgb(255, 206, 86)",
+            "rgb(153, 102, 255)"
+        ];
+        const color = colors[idx % colors.length];
+        return {
+            label: curve.label,
+            data: dataPoints,
+            borderWidth: 2,
+            borderColor: color,
+            backgroundColor: color.replace('rgb', 'rgba').replace(')', ', 0.1)'),
+            pointRadius: 0,
+            pointHoverRadius: 5,
+            fill: false
+        };
+    });
+
+    chart = new Chart(ctx, {
+        type: "line",
+        data: { datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "nearest", intersect: false },
+            plugins: {
+                tooltip: {
+                    enabled: true,
+                    callbacks: {
+                        title: (ctx) => `x = ${ctx[0].parsed.x.toFixed(4)}`,
+                        label: (ctx) => `y = ${formatNumber(ctx.parsed.y)}`
+                    }
+                },
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: { color: axisColor }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'linear',
+                    title: { display: true, text: 'x', color: axisColor },
+                    ticks: {
+                        color: axisColor,
+                        callback: function(val) { return Number(val).toFixed(2); }
+                    }
+                },
+                y: {
+                    title: { display: true, text: 'y', color: axisColor },
+                    ticks: {
+                        color: axisColor,
+                        callback: function(val) { return formatNumber(val); }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// ====================
+// Main simulate
+// ====================
+function simulate() {
+    try {
+        const f = buildFunction();
+        const x0 = Number(document.getElementById("x0").value);
+        const y0 = Number(document.getElementById("y0").value);
+        const xEnd = Number(document.getElementById("xEnd").value);
+        const h = Number(document.getElementById("h").value);
+        const method = document.getElementById("method").value;
+        
+        const familyEnabled = document.getElementById("familyToggle").checked;
+        const numCurves = familyEnabled ? Number(document.getElementById("numCurves").value) : 1;
+        
+        let allCurves = [];
+        let allStatuses = [];
+        
+        if (familyEnabled && numCurves > 1) {
+            // Generate family of curves with different initial y values
+            const offsets = [];
+            if (numCurves === 1) {
+                offsets.push(0);
+            } else {
+                for (let i = 0; i < numCurves; i++) {
+                    offsets.push(-2 + (4 * i / (numCurves - 1)));
+                }
+            }
+            
+            for (let i = 0; i < numCurves; i++) {
+                const y0_curve = y0 + offsets[i];
+                const { xs, ys, status } = integrate(f, x0, y0_curve, xEnd, h, method);
+                allCurves.push({
+                    xs: xs,
+                    ys: ys,
+                    label: `y₀ = ${y0_curve.toFixed(2)}`
+                });
+                allStatuses.push(status);
+            }
+        } else {
+            // Single curve
+            const { xs, ys, status } = integrate(f, x0, y0, xEnd, h, method);
+            allCurves.push({
+                xs: xs,
+                ys: ys,
+                label: `y₀ = ${y0.toFixed(2)}`
+            });
+            allStatuses.push(status);
+        }
+        
+        // Update Status Box - show first non-complete status or "All Complete"
+        const statusDiv = document.getElementById("statusMsg");
+        statusDiv.style.display = "block";
+        
+        const errorStatus = allStatuses.find(s => s.includes("Stopped") || s.includes("Error"));
+        if (errorStatus) {
+            statusDiv.textContent = errorStatus;
+            statusDiv.style.borderLeftColor = "#dc3545";
+        } else {
+            statusDiv.textContent = familyEnabled && numCurves > 1 ? 
+                `All ${numCurves} curves completed` : "Simulation Complete";
+            statusDiv.style.borderLeftColor = "#28a745";
+        }
+
+        plot(allCurves);
+    } catch (error) {
+        alert("Error parsing equation: " + error.message);
+    }
+}
+
+// ====================
+// Field toggling
+// ====================
+function toggleFields() {
+    document.getElementById("sepFields").style.display = "none";
+    document.getElementById("homFields").style.display = "none";
+    document.getElementById("linFields").style.display = "none";
+    document.getElementById("exFields").style.display = "none";
+
+    const eq = document.getElementById("eqType").value;
+    if (eq === "separable") document.getElementById("sepFields").style.display = "block";
+    if (eq === "homogeneous") document.getElementById("homFields").style.display = "block";
+    if (eq === "linear") document.getElementById("linFields").style.display = "block";
+    if (eq === "exact") document.getElementById("exFields").style.display = "block";
+}
+
+// ====================
+// Family toggle
+// ====================
+function toggleFamily() {
+    const familyControls = document.getElementById("familyControls");
+    const isChecked = document.getElementById("familyToggle").checked;
+    familyControls.style.display = isChecked ? "block" : "none";
+}
+
+// ====================
+// Theme handling
+// ====================
+function updateChartTheme() {
+    if (!chart) return;
+    const isDark = document.body.classList.contains('dark');
+    const axisColor = isDark ? '#e4e4e4' : '#333';
+    chart.options.scales.x.title.color = axisColor;
+    chart.options.scales.x.ticks.color = axisColor;
+    chart.options.scales.y.title.color = axisColor;
+    chart.options.scales.y.ticks.color = axisColor;
+    if (chart.options.plugins?.legend?.labels) {
+        chart.options.plugins.legend.labels.color = axisColor;
+    }
+    chart.update();
+}
+
+function toggleTheme() {
+    document.body.classList.toggle('dark');
+    const isDark = document.body.classList.contains('dark');
+    localStorage.setItem('odeTheme', isDark ? 'dark' : 'light');
+    const btn = document.getElementById('themeToggle');
+    if (btn) btn.textContent = isDark ? 'Light Mode' : 'Dark Mode';
+    updateChartTheme();
+}
+
+(function initTheme(){
+    const saved = localStorage.getItem('odeTheme');
+    if (saved === 'dark') document.body.classList.add('dark');
+    const btn = document.getElementById('themeToggle');
+    if (btn) btn.textContent = document.body.classList.contains('dark') ? 'Light Mode' : 'Dark Mode';
+})();
+</script>
+
+</body>
+</html>
+
